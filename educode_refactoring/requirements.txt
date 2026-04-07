@@ -1,0 +1,24 @@
+# Python Dependencies for EduCode Refactoring Game Backend
+
+# Web Framework
+Flask==2.3.3
+flask-cors==4.0.0
+python-dotenv==1.0.0
+
+# AI / LLM
+google-generativeai==0.3.0
+
+# JSON Serialization (for working with C# Newtonsoft.Json)
+# Python's built-in json module is used, but this list kept for reference
+# requests (optional, for external API calls to GitHub, etc.)
+requests==2.31.0
+
+# Data Processing
+Werkzeug==2.3.7  # dependency of Flask, explicit for security updates
+
+# Code Analysis
+regex==2023.8.8   # for advanced Java code parsing (optional, regex built-in used by default)
+
+# Debugging (development only)
+# ipython==8.15.0
+# pytest==7.4.0
