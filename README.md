@@ -11,7 +11,8 @@ educode_refactoring/
 ├── .env.example                     # Environment template
 ├── engine/
 │   ├── city_diff_generator.py       # Java code parser → CityDiff patches
-│   ├── engage_engine.py             # Hint session initialization
+│   ├── engage_engine.py             # Hint session initialization (GitHub mode)
+│   ├── refactor_engine.py           # Auto-refactor via Gemini (Open World mode)
 │   ├── progression_tracker.py       # Student progress & curriculum tracking
 │   └── teaching_plan_engine.py      # AnalysisReport → TeachingPlan conversion
 ├── prompts/
@@ -323,6 +324,59 @@ Mark a challenge complete and unlock the next queued one.
 }
 ```
 
+#### `POST /world/solve`
+
+**Open World Mode Only** — Auto-refactor and immediately return the fixed code + city_diff.
+
+This endpoint replaces the engage → hint → validate → advance flow for Open World. GitHub Mode continues using /world/engage + /edumode/validate.
+
+**Request:**
+```json
+{
+  "plan_id": "plan_xyz789",
+  "challenge_id": "c1",
+  "source_code": "public class UserService { ... }",
+  "original_city_class": {
+    "name": "UserService",
+    "type": "class",
+    "methods": ["authenticate", "validate", "persist"],
+    "attributes": ["db", "cache"],
+    "linesOfCode": 456
+  },
+  "original_relationships": []
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "smell_type": "GodClass",
+  "display_name": "God Class",
+  "class_name": "UserService",
+  "refactored_code": "public class UserService { ... } public class UserValidator { ... } public class UserPersistence { ... }",
+  "summary": "Split into UserService (auth), UserValidator (validation), and UserPersistence (storage).",
+  "city_diff": {
+    "success": true,
+    "affected_class": "UserService",
+    "change_type": "split",
+    "city_patch": {
+      "updated_classes": [...],
+      "added_classes": [...],
+      "removed_classes": [],
+      "added_relationships": [...],
+      "removed_relationships": [],
+      "updated_relationships": []
+    },
+    "rebuild_targets": ["UserService", "UserValidator", "UserPersistence"]
+  },
+  "unlocked_challenge": { ... } | null,
+  "remaining_active": 4,
+  "remaining_queued": 8,
+  "all_complete": false
+}
+```
+
 #### `GET /world/plan/<plan_id>`
 
 Retrieve a cached plan (for session recovery).
@@ -338,30 +392,43 @@ Retrieve a cached plan (for session recovery).
 3. **Validate**: `/edumode/validate` → generates `city_diff` if smell resolved
 4. **Progress**: `/edumode/progress/<student_id>` tracks completion
 
-### Open World / GitHub Mode
+### Open World Mode (Auto-Solve)
 
-1. **Analyze**: User's code → `HybridAnalysisPipeline` → AnalysisReport
-2. **Plan**: `/world/analyze` converts report → `teaching_plan_engine` priorities
+1. **Analyze**: User's code → AnalysisReport → `/world/analyze`
+2. **Plan**: Creates teaching plan with prioritized challenges
+3. **Solve**: Player clicks building → `/world/solve` (one-shot)
+   - Gemini auto-refactors the class
+   - Returns `city_diff` for 3D rebuild
+   - Plan auto-advances, unlocks next challenge
+4. **Display**: Solution Viewer panel shows refactored code + summary
+5. **Repeat**: Next challenge available to solve
+
+### GitHub Mode (Interactive Flow)
+
+1. **Analyze**: User's GitHub repo → AnalysisReport → `/world/analyze`
+2. **Plan**: Creates teaching plan with prioritized challenges
 3. **Engage**: Player clicks building → `/world/engage` → puzzle injects into EduModeManager
-4. **Hint Loop**: Shared with Escape Room (via EduModeManager)
-5. **Validate**: `/edumode/validate` with city data injection
-6. **Repair**: `/world/advance` unlocks next challenge, building repairs animate
+4. **Hint Loop**: Player requests hints via `/edumode/hint` (4-stage progression)
+5. **Validate**: Player submits refactoring → `/edumode/validate` → Gemini grades it
+6. **Repair**: If correct, `/world/advance` unlocks next challenge, building repairs animate
 
 ---
 
-## Code Quality
+## Code Smells
 
-All smell types are tracked in a 15-smell curriculum with 3 difficulty tiers:
+All 15 code smells are tracked in a curriculum with 3 difficulty tiers:
 
 | Tier | Smells |
 |------|--------|
-| Beginner | GodClass, LongMethod, DuplicateCode, LongParameterList, DeadCode |
-| Intermediate | ShotgunSurgery, FeatureEnvy, DataClumps, PrimitiveObsession, SwitchStatements |
-| Advanced | LazyClass, SpeculativeGenerality, ChainedMethods, MiddleMan, AlternativeClasses |
+| Beginner | LongMethod, LongParameterList, DeadCode, DeepNesting, DuplicatedCode |
+| Intermediate | DataClass, FeatureEnvy, LazyClass, ComplexConditional, MessageChain |
+| Advanced | GodClass, HighCoupling, MiddleMan, RefusedBequest, ShotgunSurgery |
 
 Curriculum progression is unlocked based on average scores:
-- Difficulty 1 → Difficulty 2: 60% average on Difficulty 1
-- Difficulty 2 → Difficulty 3: 75% average on Difficulty 2
+- Difficulty 1 → Difficulty 2: 60% average on Difficulty 1 puzzles
+- Difficulty 2 → Difficulty 3: 75% average on Difficulty 2 puzzles
+
+**Note:** Open World and GitHub modes do not use difficulty levels—they analyze real code and assign smells based on actual violations found.
 
 ---
 
