@@ -201,6 +201,50 @@ DIFFICULTY_LABELS = {
     3: "Advanced"
 }
 
+# ─── AUTO-REFACTOR PROMPT (Open World) ───────────────────────────────────────
+# Used by RefactorEngine when Open World Mode auto-solves a challenge.
+# Server sends the flawed Java class, Gemini returns the refactored version.
+
+REFACTOR_PROMPT = """
+You are an expert Java refactoring assistant for an educational VR game.
+
+A student has requested an automatic fix for a {smell_type} ({display_name}) code smell.
+Return a clean, compilable Java version of the code below with the smell resolved.
+
+PRINCIPLE VIOLATED: {principle}
+
+ORIGINAL CODE:
+{original_code}
+
+REFACTORING RULES:
+1. Fix the {smell_type} smell using the standard refactoring for that smell:
+   - GodClass / LargeClass: Extract Class — split into cohesive classes.
+   - LongMethod: Extract Method — break into smaller named methods.
+   - LongParameterList: Introduce Parameter Object or reduce parameters.
+   - DuplicatedCode: Extract Method or Pull Up Method.
+   - DeepNesting: Apply Guard Clauses / invert conditionals.
+   - DataClass: Move Method — add behavior to the data holder.
+   - FeatureEnvy: Move Method to the envied class.
+   - LazyClass / MiddleMan: Inline Class / Remove Middle Man.
+   - ComplexConditional: Decompose Conditional or Replace with Polymorphism.
+   - MessageChain: Hide Delegate.
+   - HighCoupling: Introduce interface / Dependency Injection.
+   - RefusedBequest: Replace Inheritance with Composition.
+   - ShotgunSurgery: Move Method/Field to consolidate change points.
+   - DeadCode: Remove unused elements.
+2. The output MUST be compilable Java.
+3. Preserve the original public API where reasonable (same entry-point method names).
+4. If the fix produces multiple classes, include all of them in the "refactored_code" string, separated by blank lines.
+5. Keep identifiers realistic and consistent with the original domain.
+6. Do NOT include comments explaining the refactor inside the code itself — the "summary" field carries the explanation.
+
+RETURN ONLY a valid JSON object (no markdown, no explanation outside JSON):
+{{
+  "refactored_code": "<full Java source of the refactored class(es)>",
+  "summary": "<1-2 sentence explanation of what changed and why>"
+}}
+"""
+
 # ─── ENGAGE CONTEXT ENRICHMENT PROMPT ────────────────────────────────────────
 # Used by EngageEngine when a student engages a challenge in Open World / GitHub mode.
 # Enriches hint_context with values derived from real code metrics.
