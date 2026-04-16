@@ -52,6 +52,25 @@ namespace EduCode.WorldMode
         public string educator_note;
         public string hint_context;           // pre-computed hints
         public string status;                 // "active" or "queued"
+        public string source_code;            // Java source for Open World auto-solve
+    }
+
+    [Serializable]
+    public class SolveResponse
+    {
+        public bool          success;
+        public string        smell_type;
+        public string        display_name;
+        public string        class_name;
+        public string        refactored_code;
+        public string        summary;
+        public CityDiff      city_diff;
+        public ChallengeItem unlocked_challenge;
+        public int           remaining_active;
+        public int           remaining_queued;
+        public bool          all_complete;
+        public string        error;
+        public string        message;
     }
 
     [Serializable]
@@ -131,7 +150,11 @@ namespace EduCode.WorldMode
         public event Action<TeachingPlan>     OnPlanReady;
         public event Action<EngageResponse>   OnChallengeEngaged;
         public event Action<AdvanceResponse>  OnChallengeAdvanced;
+        public event Action<SolveResponse>    OnChallengeSolved;   // Open World only
         public event Action<string>           OnError;
+
+        // Exposed for controllers that need to branch behavior by mode.
+        public string CurrentMode => _currentPlan?.mode ?? "open_world";
 
         // ─────────────────────────────────────────────────────────────────────
 
@@ -266,6 +289,87 @@ namespace EduCode.WorldMode
         }
 
         /// <summary>
+        /// Open World auto-solve. Sends the class source to the server, which
+        /// returns the refactored version + a city_diff. Replaces the
+        /// engage/hint/validate/advance flow for Open World Mode.
+        /// GitHub Mode should NOT call this — it must continue using
+        /// EngageChallenge + EduModeManager.ValidateRefactoring.
+        /// </summary>
+        public void SolveChallenge(
+            string challengeId,
+            CityClassEntry originalCityClass = null,
+            List<CityRelationship> originalRelationships = null,
+            Action<SolveResponse> onComplete = null)
+        {
+            if (!_challengeById.TryGetValue(challengeId, out var challenge))
+            {
+                OnError?.Invoke($"Challenge {challengeId} not found.");
+                onComplete?.Invoke(new SolveResponse { success = false, error = "challenge_not_found" });
+                return;
+            }
+
+            if (challenge.status == "queued")
+            {
+                var resp = new SolveResponse { success = false, error = "Challenge not yet unlocked." };
+                onComplete?.Invoke(resp);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(challenge.source_code))
+            {
+                OnError?.Invoke($"No source_code on challenge {challengeId}. /world/analyze must include it.");
+                onComplete?.Invoke(new SolveResponse { success = false, error = "missing_source_code" });
+                return;
+            }
+
+            var body = new Dictionary<string, object>
+            {
+                ["plan_id"]                = _currentPlanId,
+                ["challenge_id"]           = challengeId,
+                ["source_code"]            = challenge.source_code,
+                ["original_city_class"]    = originalCityClass,
+                ["original_relationships"] = originalRelationships ?? new List<CityRelationship>(),
+            };
+
+            StartCoroutine(Post<SolveResponse>("/world/solve", body, response =>
+            {
+                if (!response.success)
+                {
+                    OnError?.Invoke(response.error ?? response.message ?? "solve_failed");
+                    onComplete?.Invoke(response);
+                    return;
+                }
+
+                _repairedBuildings.Add(challengeId);
+
+                // Apply city_diff through the existing CityPatchApplier.
+                if (response.city_diff != null && CityPatchApplier.Instance != null)
+                    CityPatchApplier.Instance.ApplyDiff(response.city_diff);
+
+                // Repair the building visual.
+                if (cityRenderer != null)
+                {
+                    var building = cityRenderer.FindBuildingByClassName(challenge.class_name);
+                    if (building != null) building.ApplyRepairVisual();
+                }
+
+                // Unlock next challenge (the server already advanced the plan).
+                if (response.unlocked_challenge != null)
+                {
+                    _challengeById[GetChallengeId(response.unlocked_challenge)] = response.unlocked_challenge;
+                    ApplyDamageVisual(response.unlocked_challenge);
+                    Debug.Log($"[TeachingPlan] Unlocked: {response.unlocked_challenge.display_name}");
+                }
+
+                if (response.all_complete)
+                    Debug.Log("[TeachingPlan] 🎉 All challenges complete!");
+
+                onComplete?.Invoke(response);
+                OnChallengeSolved?.Invoke(response);
+            }));
+        }
+
+        /// <summary>
         /// Called after successful validation.
         /// Marks challenge complete, unlocks next queued challenge.
         /// </summary>
@@ -335,20 +439,20 @@ namespace EduCode.WorldMode
         {
             if (!validation.success || !validation.smell_resolved) return;
 
-            // Find which challenge this was and repair it + advance
-            // (You'll need to track the current active challenge somewhere)
-            // For now, assume single active challenge:
+            // Open World now auto-solves via /world/solve — repair + advance are
+            // handled inside SolveChallenge. Only GitHub Mode still rides the
+            // validate → advance path.
+            if (CurrentMode != "github") return;
+
             if (_currentPlan?.active_challenges?.Count > 0)
             {
                 string challengeId = GetChallengeId(_currentPlan.active_challenges[0]);
 
-                // Repair the building
-                var building = cityRenderer.FindBuildingByClassName(
+                var building = cityRenderer?.FindBuildingByClassName(
                     _currentPlan.active_challenges[0].class_name);
                 if (building != null)
                     building.ApplyRepairVisual();
 
-                // Advance to next
                 AdvanceToNext(challengeId);
             }
         }

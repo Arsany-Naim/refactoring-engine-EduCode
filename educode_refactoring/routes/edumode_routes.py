@@ -316,6 +316,7 @@ def health():
             "POST /edumode/hint",
             "POST /edumode/hint/replay",
             "POST /edumode/validate  ← returns city_diff on success",
+            "POST /world/solve  ← Open World auto-refactor (returns refactored code + city_diff)",
             "GET  /edumode/progress/<student_id>",
             "GET  /edumode/recommend/<student_id>",
             "GET  /edumode/smells",

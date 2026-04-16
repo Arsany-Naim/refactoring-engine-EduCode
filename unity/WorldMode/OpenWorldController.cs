@@ -59,10 +59,11 @@ namespace EduCode
                 teachingPlanManager.OnPlanReady       += OnPlanReady;
                 teachingPlanManager.OnChallengeEngaged += OnChallengeEngaged;
                 teachingPlanManager.OnChallengeAdvanced += OnChallengeAdvanced;
+                teachingPlanManager.OnChallengeSolved  += OnChallengeSolved;
                 teachingPlanManager.OnError            += OnTeachingPlanError;
             }
 
-            // Wire EduModeManager events
+            // Wire EduModeManager events (GitHub mode only — Open World skips validate)
             if (EduModeManager.Instance != null)
             {
                 EduModeManager.Instance.OnValidationComplete += OnValidationComplete;
@@ -77,6 +78,7 @@ namespace EduCode
                 teachingPlanManager.OnPlanReady        -= OnPlanReady;
                 teachingPlanManager.OnChallengeEngaged  -= OnChallengeEngaged;
                 teachingPlanManager.OnChallengeAdvanced -= OnChallengeAdvanced;
+                teachingPlanManager.OnChallengeSolved   -= OnChallengeSolved;
                 teachingPlanManager.OnError             -= OnTeachingPlanError;
             }
 
@@ -84,6 +86,30 @@ namespace EduCode
             {
                 EduModeManager.Instance.OnValidationComplete -= OnValidationComplete;
                 EduModeManager.Instance.OnError -= OnEduModeError;
+            }
+        }
+
+        /// <summary>
+        /// Called by BuildingView (or the "Fix This" UI) when the player picks a
+        /// damaged building. In Open World we call /world/solve directly — the
+        /// server refactors the class and returns the fix. In GitHub mode we
+        /// keep the interactive engage → hint → validate flow.
+        /// </summary>
+        public void OnBuildingInteract(
+            string challengeId,
+            CityClassEntry originalCityClass = null,
+            System.Collections.Generic.List<CityRelationship> originalRelationships = null)
+        {
+            if (teachingPlanManager == null) return;
+
+            if (isGitHubMode)
+            {
+                teachingPlanManager.EngageChallenge(challengeId);
+            }
+            else
+            {
+                SetStatus("Refactoring...");
+                teachingPlanManager.SolveChallenge(challengeId, originalCityClass, originalRelationships);
             }
         }
 
@@ -162,10 +188,32 @@ namespace EduCode
             SetStatus($"Fixing: {response.display_name} in {response.class_name}");
 
             // HintPanelUI will now automatically show because EduModeManager
-            // has the puzzle_id injected and is ready to serve hints
+            // has the puzzle_id injected and is ready to serve hints.
+            // (Reached only in GitHub mode — Open World uses /world/solve.)
             Debug.Log($"[OpenWorld] Challenge engaged. "
                     + $"Principle: {response.principle}. "
                     + $"Note: {response.educator_note}");
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 5 (OPEN WORLD) — CHALLENGE AUTO-SOLVED
+        // ═══════════════════════════════════════════════════════════════════
+
+        private void OnChallengeSolved(SolveResponse response)
+        {
+            if (!response.success)
+            {
+                SetStatus($"Could not refactor: {response.error ?? response.message ?? "unknown error"}");
+                return;
+            }
+
+            SetStatus($"Refactored: {response.display_name} in {response.class_name}");
+            Debug.Log($"[OpenWorld] Solved {response.class_name}. Summary: {response.summary}");
+
+            if (response.all_complete)
+                SetStatus("All code smells resolved! This codebase is clean.");
+            else if (response.unlocked_challenge != null)
+                SetStatus($"Next up: {response.unlocked_challenge.display_name} in {response.unlocked_challenge.class_name}");
         }
 
         // ═══════════════════════════════════════════════════════════════════
